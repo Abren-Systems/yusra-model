@@ -9,7 +9,7 @@ from yusra_model.models.loans import Portfolio
 from yusra_model.models.cashflow import CashFlowProjection, CycleProjection, QUARTER_LABELS
 from yusra_model.models.optimizer import optimize
 from yusra_model.models.targets import build_targets, build_velocity_scenarios
-from yusra_model.models.covenants import check_all, CovenantStatus
+from yusra_model.models.covenants import check_all
 
 
 def _render_chart(fig: go.Figure, width: int = 700, height: int = 400) -> str:

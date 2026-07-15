@@ -128,6 +128,7 @@ def load_config(path: str | Path) -> Config:
         fixed_assets=fixed_assets,
         working_capital_policy=wc_policy,
         taxation=taxation,
+        fiscal_year_start_month=int(p.get("fiscal_year_start_month", 1)),
     )
 
 
