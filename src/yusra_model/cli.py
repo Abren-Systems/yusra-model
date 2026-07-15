@@ -67,7 +67,7 @@ def run(config, output, fmt, name, verbose, scenario, full):
         "timestamp": timestamp,
         "scenario": scenario,
         "config_file": str(config),
-        "model_version": "1.2.0",
+        "model_version": __import__("importlib.metadata").metadata.version("yusra-model"),
     }
 
     if full:
@@ -200,6 +200,17 @@ def _run_multi_optimizer(cfg, top_n):
     """Multi-dimensional business optimizer — full grid sweep."""
     from yusra_model.models.multi_optimizer import run_optimizer, DEFAULT_GRID
 
+    run_id = uuid.uuid4().hex[:8]
+    timestamp = datetime.now(timezone.utc).isoformat()
+    audit = {
+        "run_id": run_id,
+        "timestamp": timestamp,
+        "command": "optimize",
+        "mode": "multi",
+        "config_file": "",
+        "model_version": __import__("importlib.metadata").metadata.version("yusra-model"),
+    }
+
     click.echo(f"\n{'='*60}")
     click.echo(f"MULTI-DIMENSIONAL OPTIMISATION — {cfg.company}")
     click.echo(f"{'='*60}")
@@ -267,6 +278,14 @@ def _run_multi_optimizer(cfg, top_n):
 
     click.echo(f"\n{'='*60}")
 
+    # Write audit log
+    audit_path = Path(f"optimize_{run_id}.json")
+    import json
+    with open(audit_path, "w") as f:
+        json.dump(audit, f, indent=2)
+    logger.info("Audit log written: %s", audit_path)
+    click.echo(f"Audit log: {audit_path}")
+
 
 @cli.command()
 @click.option("--output", "-o", default="./config/template.xlsx",
@@ -291,6 +310,18 @@ def plan(config, verbose, scenarios, sensitivity):
     """Run scenario analysis and strategic planning."""
     _setup_logging(verbose)
     cfg = load_config(config)
+
+    run_id = uuid.uuid4().hex[:8]
+    timestamp = datetime.now(timezone.utc).isoformat()
+    audit = {
+        "run_id": run_id,
+        "timestamp": timestamp,
+        "command": "plan",
+        "config_file": str(config),
+        "scenarios": scenarios,
+        "sensitivity": sensitivity,
+        "model_version": __import__("importlib.metadata").metadata.version("yusra-model"),
+    }
 
     scenario_names = [s.strip() for s in scenarios.split(",") if s.strip()]
 
@@ -334,6 +365,14 @@ def plan(config, verbose, scenarios, sensitivity):
             click.echo()
 
     click.echo(f"{'='*60}")
+
+    # Write audit log
+    audit_path = Path(f"plan_{run_id}.json")
+    import json
+    with open(audit_path, "w") as f:
+        json.dump(audit, f, indent=2)
+    logger.info("Audit log written: %s", audit_path)
+    click.echo(f"Audit log: {audit_path}")
 
 
 if __name__ == "__main__":

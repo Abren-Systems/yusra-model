@@ -1,13 +1,12 @@
 """Sensitivity analysis — vary one driver at a time, show impact on KPIs."""
 from __future__ import annotations
 from dataclasses import dataclass, field
-from copy import deepcopy
 from typing import Optional
 import logging
 
 from yusra_model.config.loader import Config
 from yusra_model.engine.project import project_full
-from yusra_model.models.multi_optimizer import compute_kpis
+from yusra_model.strategy.delta import apply_delta
 
 logger = logging.getLogger(__name__)
 
@@ -35,40 +34,22 @@ class SensitivityResult:
 
 def _apply_driver(cfg: Config, driver: str, change_pct: int) -> Config:
     """Apply a percentage change to one driver in a deep-copied Config."""
-    c = deepcopy(cfg)
     factor = 1 + change_pct / 100.0
 
     if driver == "growth":
-        if c.revenue and c.revenue.product_lines:
-            for pl in c.revenue.product_lines:
-                pl.growth_rate *= factor
-
+        return apply_delta(cfg, growth_multiplier=factor)
     elif driver == "price":
-        if c.revenue and c.revenue.product_lines:
-            for pl in c.revenue.product_lines:
-                pl.avg_price *= factor
-
+        return apply_delta(cfg, price_multiplier=factor)
     elif driver == "wc":
-        if c.working_capital_policy:
-            wc = c.working_capital_policy
-            wc.receivables.dso_target = max(1, int(wc.receivables.dso_target * factor))
-            wc.payables.dpo_target = max(1, int(wc.payables.dpo_target * factor))
-            wc.inventory.finished_goods_days = max(1, int(wc.inventory.finished_goods_days * factor))
-
+        return apply_delta(cfg, wc_efficiency=factor)
     elif driver == "leverage":
-        c.total_facility = round(c.total_facility * factor, 0)
-        if c.loans:
-            for loan in c.loans:
-                if loan.get("etb_principal") is not None:
-                    loan["etb_principal"] = round(loan["etb_principal"] * factor, 0)
-                if loan.get("quarterly_repayment") is not None:
-                    loan["quarterly_repayment"] = round(loan["quarterly_repayment"] * factor, 0)
-
+        return apply_delta(cfg, leverage_multiplier=factor)
     elif driver == "cost_escalation":
-        if c.costs:
-            c.costs.escalation_rate = max(0.0, c.costs.escalation_rate * factor)
-
-    return c
+        # cost_escalation_shift is additive; for sensitivity we want multiplicative
+        base = cfg.costs.escalation_rate if cfg.costs else 0.08
+        shift = base * (factor - 1)
+        return apply_delta(cfg, cost_escalation_shift=shift)
+    return deepcopy(cfg)
 
 
 def run_sensitivity(
@@ -84,6 +65,7 @@ def run_sensitivity(
 
     # Base case
     base_proj = project_full(cfg)
+    from yusra_model.models.multi_optimizer import compute_kpis
     base_kpis = compute_kpis(base_proj)
 
     points: list[SensitivityPoint] = []

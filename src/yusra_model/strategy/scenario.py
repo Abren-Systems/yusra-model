@@ -1,14 +1,13 @@
 """Scenario engine — predefined modifier presets, multi-scenario runner."""
 from __future__ import annotations
-from dataclasses import dataclass, field
-from copy import deepcopy
+from dataclasses import dataclass
 from typing import Optional
 import logging
 
 from yusra_model.config.loader import Config
 from yusra_model.engine.project import project_full
 from yusra_model.engine.statements import FinancialProjection
-from yusra_model.models.multi_optimizer import compute_kpis
+from yusra_model.strategy.delta import apply_delta
 
 logger = logging.getLogger(__name__)
 
@@ -68,44 +67,15 @@ class ScenarioResult:
 
 def apply_modifier(cfg: Config, mod: ScenarioModifier) -> Config:
     """Apply a scenario modifier to a deep-copied Config."""
-    c = deepcopy(cfg)
-
-    # Growth & pricing
-    if c.revenue and c.revenue.product_lines:
-        for pl in c.revenue.product_lines:
-            pl.growth_rate *= mod.growth_multiplier
-            pl.avg_price *= mod.price_multiplier
-        if mod.bad_debt_shift:
-            c.revenue.bad_debt_rate = min(1.0, c.revenue.bad_debt_rate + mod.bad_debt_shift)
-
-    # Working capital
-    if c.working_capital_policy:
-        wc = c.working_capital_policy
-        wc.receivables.dso_target = max(1, int(wc.receivables.dso_target * mod.wc_efficiency))
-        wc.payables.dpo_target = max(1, int(wc.payables.dpo_target * mod.wc_efficiency))
-        wc.inventory.finished_goods_days = max(1, int(wc.inventory.finished_goods_days * mod.wc_efficiency))
-
-    # Leverage
-    if mod.leverage_multiplier != 1.0:
-        c.total_facility = round(c.total_facility * mod.leverage_multiplier, 0)
-        if c.loans:
-            for loan in c.loans:
-                if loan.get("etb_principal") is not None:
-                    loan["etb_principal"] = round(loan["etb_principal"] * mod.leverage_multiplier, 0)
-                if loan.get("quarterly_repayment") is not None:
-                    loan["quarterly_repayment"] = round(loan["quarterly_repayment"] * mod.leverage_multiplier, 0)
-
-    # Cost escalation
-    if c.costs and mod.cost_escalation_shift:
-        c.costs.escalation_rate = max(0.0, c.costs.escalation_rate + mod.cost_escalation_shift)
-
-    # Overheads
-    if mod.overhead_shift and c.costs and c.costs.operating_expenses:
-        opex = c.costs.operating_expenses
-        for cat in (opex.sales_marketing, opex.distribution, opex.admin, opex.r_and_d, opex.other):
-            cat.fixed_per_month = round(cat.fixed_per_month * (1 + mod.overhead_shift), 2)
-
-    return c
+    return apply_delta(cfg,
+        growth_multiplier=mod.growth_multiplier,
+        price_multiplier=mod.price_multiplier,
+        wc_efficiency=mod.wc_efficiency,
+        leverage_multiplier=mod.leverage_multiplier,
+        cost_escalation_shift=mod.cost_escalation_shift,
+        overhead_shift=mod.overhead_shift,
+        bad_debt_shift=mod.bad_debt_shift,
+    )
 
 
 def run_scenarios(
@@ -125,6 +95,7 @@ def run_scenarios(
         try:
             scenario_cfg = apply_modifier(cfg, mod)
             proj = project_full(scenario_cfg)
+            from yusra_model.models.multi_optimizer import compute_kpis
             kpis = compute_kpis(proj)
             results.append(ScenarioResult(
                 name=name,

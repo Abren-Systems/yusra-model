@@ -58,6 +58,7 @@ class CapExPlan:
 class FixedAssets:
     existing_assets: list[DepreciableAsset] = field(default_factory=list)
     capex_plan: CapExPlan = field(default_factory=CapExPlan)
+    default_capex_useful_life_years: int = 10
 
 
 @dataclass

@@ -56,6 +56,7 @@ class Config:
     fixed_assets: Optional[FixedAssets] = None
     working_capital_policy: Optional[WorkingCapitalPolicy] = None
     taxation: Optional[TaxSettings] = None
+    fiscal_year_start_month: int = 1
 
 
 def load_config(path: str | Path) -> Config:
@@ -294,7 +295,11 @@ def _parse_fixed_assets(raw: dict | None) -> FixedAssets | None:
         year_4=float(cp.get("year_4", 0)),
         year_5=float(cp.get("year_5", 0)),
     )
-    return FixedAssets(existing_assets=assets, capex_plan=capex)
+    return FixedAssets(
+        existing_assets=assets,
+        capex_plan=capex,
+        default_capex_useful_life_years=raw.get("default_capex_useful_life_years", 10),
+    )
 
 
 def _parse_working_capital(raw: dict | None) -> WorkingCapitalPolicy | None:

@@ -6,13 +6,13 @@ applies constraints, ranks by composite score, and identifies Pareto frontiers.
 from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Optional, Callable
-from copy import deepcopy
 import itertools
 import logging
 
 from yusra_model.config.loader import Config
 from yusra_model.engine.project import project_full
 from yusra_model.engine.statements import FinancialProjection
+from yusra_model.strategy.delta import apply_delta
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +104,13 @@ class MultiOptimizerResult:
 
 def compute_kpis(proj: FinancialProjection) -> dict[str, float]:
     """Extract summary KPIs from a full three-statement projection."""
+    if not proj.periods:
+        return {
+            "revenue_cagr": 0.0, "roe": 0.0, "min_dscr": 99.0,
+            "min_cash": 0.0, "total_throughput": 0.0,
+            "avg_net_margin": 0.0, "final_debt_to_equity": 99.0,
+            "avg_roa": 0.0, "last_year_net_income": 0.0,
+        }
     revs = [p.income.revenue for p in proj.periods]
     nis = [p.income.net_income for p in proj.periods]
     eqs = [p.balance.total_equity for p in proj.periods]
@@ -160,36 +167,18 @@ def compute_kpis(proj: FinancialProjection) -> dict[str, float]:
 
 def apply_params(cfg: Config, params: dict) -> Config:
     """Deep-copy Config and apply variant parameter overrides."""
-    c = deepcopy(cfg)
-    growth_mult = params.get("growth_multiplier", 1.0)
-    price_mult = params.get("price_multiplier", 1.0)
-    wc_eff = params.get("wc_efficiency", 1.0)
-    lev_mult = params.get("leverage_multiplier", 1.0)
+    c = apply_delta(cfg,
+        growth_multiplier=params.get("growth_multiplier", 1.0),
+        price_multiplier=params.get("price_multiplier", 1.0),
+        wc_efficiency=params.get("wc_efficiency", 1.0),
+        leverage_multiplier=params.get("leverage_multiplier", 1.0),
+        cost_escalation_shift=0.0,
+        overhead_shift=0.0,
+        bad_debt_shift=0.0,
+    )
     tenor = params.get("tenor_quarters")
-
-    if c.revenue and c.revenue.product_lines:
-        for pl in c.revenue.product_lines:
-            pl.growth_rate *= growth_mult
-            pl.avg_price *= price_mult
-
-    if c.working_capital_policy:
-        wc = c.working_capital_policy
-        wc.receivables.dso_target = max(1, int(wc.receivables.dso_target * wc_eff))
-        wc.payables.dpo_target = max(1, int(wc.payables.dpo_target * wc_eff))
-        wc.inventory.finished_goods_days = max(1, int(wc.inventory.finished_goods_days * wc_eff))
-
-    if lev_mult != 1.0:
-        c.total_facility = round(c.total_facility * lev_mult, 0)
-        if c.loans:
-            for loan in c.loans:
-                if loan.get("etb_principal") is not None:
-                    loan["etb_principal"] = round(loan["etb_principal"] * lev_mult, 0)
-                if loan.get("quarterly_repayment") is not None:
-                    loan["quarterly_repayment"] = round(loan["quarterly_repayment"] * lev_mult, 0)
-
     if tenor is not None:
         c.loan_tenor_quarters = tenor
-
     return c
 
 

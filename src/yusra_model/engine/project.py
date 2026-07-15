@@ -39,9 +39,13 @@ def project_full(cfg: Config) -> FinancialProjection:
     opening_l_e = ap + debt_outstanding + _opening_equity(cfg) + retained
     other_liabilities = max(0, opening_assets - opening_l_e)
 
-    # Legacy loan repayment schedule for the first 2 years
-    legacy_repayments = _build_legacy_repayment_schedule(cfg)
-    legacy_drawdowns = _build_legacy_drawdown_schedule(cfg)
+    # Legacy loan schedules (repayments + drawdowns)
+    legacy_repayments, legacy_drawdowns = _build_legacy_schedules(cfg)
+    schedule_keys = set(legacy_repayments.keys()) | set(legacy_drawdowns.keys())
+    revolving_start = 8
+    if schedule_keys:
+        last_scheduled = max(i for i, (y, q) in enumerate(horizon) if (y, q) in schedule_keys)
+        revolving_start = last_scheduled + 1
 
     for q_idx, (year, q_num) in enumerate(horizon):
         label = f"Q{q_num} {year}"
@@ -60,6 +64,7 @@ def project_full(cfg: Config) -> FinancialProjection:
         interest, drawdown, repayment, new_debt = _project_debt(
             cfg, q_idx, year, q_num, debt_outstanding,
             legacy_drawdowns, legacy_repayments,
+            revolving_start,
         )
 
         # ── Tax ──
@@ -206,9 +211,10 @@ def _project_revenue(cfg: Config, year: int, q_num: int, year_offset: int) -> tu
     seas = rev_drivers.seasonality
     for pl in rev_drivers.product_lines:
         annual_vol = pl.base_volume * ((1 + pl.growth_rate) ** year_offset)
-        q_vol = annual_vol * seas.for_quarter(q_num - 1)
-        price = pl.avg_price * ((1 + 0.08) ** year_offset)  # general escalation
-        unit_cogs = pl.cogs_per_unit * ((1 + 0.08) ** year_offset)
+        q_vol = annual_vol * seas.for_quarter(q_num)
+        esc = cfg.costs.escalation_rate if cfg.costs else 0.08
+        price = pl.avg_price * ((1 + esc) ** year_offset)
+        unit_cogs = pl.cogs_per_unit * ((1 + esc) ** year_offset)
         total_rev += q_vol * price
         total_cogs += q_vol * unit_cogs
 
@@ -222,7 +228,8 @@ def _project_opex(cfg: Config, revenue: float, year_offset: int) -> tuple[float,
     """Project quarterly OpEx by category. Returns (s&m, dist, admin, r&d, other)."""
     costs = cfg.costs
     if costs is None:
-        oh = cfg.overheads_per_month * 3 * ((1 + 0.08) ** year_offset)
+        esc = 0.08
+        oh = cfg.overheads_per_month * 3 * ((1 + esc) ** year_offset)
         return oh * 0.3, oh * 0.2, oh * 0.35, oh * 0.1, oh * 0.05
 
     esc = (1 + costs.escalation_rate) ** year_offset
@@ -265,7 +272,8 @@ def _project_depreciation(cfg: Config, year_offset: int, current_fa_net: float) 
     for cy in range(year_offset + 1):
         capex_amt = fa.capex_plan.for_year(cy)
         if capex_amt > 0:
-            remaining_years = max(10 - cy, 1)
+            useful_life = fa.default_capex_useful_life_years
+            remaining_years = max(useful_life - cy, 1)
             total_dep_q += (capex_amt / remaining_years) / 4
 
     return total_dep_q
@@ -283,62 +291,35 @@ def _project_capex(cfg: Config, year_offset: int) -> float:
 # ─── Debt & Interest ───────────────────────────────────────────────────
 
 
-def _build_legacy_repayment_schedule(cfg: Config) -> dict[tuple[int, int], float]:
-    """Map (year, quarter) -> total repayment from legacy loan model."""
-    from yusra_model.models.loans import Loan, Portfolio
-    loans = [Loan(**l) for l in cfg.loans]
-    portfolio = Portfolio(tuple(loans), cfg.total_facility, cfg.profit_rate)
-    portfolio = portfolio.with_allocated_remaining()
-
-    # Generate quarter labels covering the loan horizon
-    if not loans:
-        return {}
-    first_start = min(l.start_date for l in loans)
-    q_labels = []
-    from yusra_model.models.loans import _quarter_label, _add_quarters
-    for off in range(12):  # 12 quarters to cover 8-quarter tenors
-        d = _add_quarters(first_start, off)
-        lbl = _quarter_label(d)
-        if lbl not in q_labels:
-            q_labels.append(lbl)
-
-    by_q = portfolio.repayment_by_quarter(q_labels)
-    # Parse quarter label "Q2 2026" -> (2026, 2)
+def _build_legacy_schedules(cfg: Config) -> tuple[dict[tuple[int, int], float], dict[tuple[int, int], float]]:
+    """Build (repayment_schedule, drawdown_schedule) from legacy loans."""
+    from yusra_model.models.loans import Loan, Portfolio, _quarter_label, _add_quarters
     import re
-    schedule: dict[tuple[int, int], float] = {}
-    for lbl, amt in by_q.items():
-        m = re.match(r"Q(\d) (\d{4})", lbl)
-        if m:
-            schedule[(int(m.group(2)), int(m.group(1)))] = amt
-    return schedule
 
-
-def _build_legacy_drawdown_schedule(cfg: Config) -> dict[tuple[int, int], float]:
-    """Map (year, quarter) -> total drawdown from legacy loans."""
-    from yusra_model.models.loans import Loan, Portfolio
     loans = [Loan(**l) for l in cfg.loans]
     portfolio = Portfolio(tuple(loans), cfg.total_facility, cfg.profit_rate)
     portfolio = portfolio.with_allocated_remaining()
 
     if not loans:
-        return {}
+        return {}, {}
+
     first_start = min(l.start_date for l in loans)
     q_labels = []
-    from yusra_model.models.loans import _quarter_label, _add_quarters
     for off in range(12):
         d = _add_quarters(first_start, off)
         lbl = _quarter_label(d)
         if lbl not in q_labels:
             q_labels.append(lbl)
 
-    by_q = portfolio.drawdown_by_quarter(q_labels)
-    import re
-    schedule: dict[tuple[int, int], float] = {}
-    for lbl, amt in by_q.items():
-        m = re.match(r"Q(\d) (\d{4})", lbl)
-        if m:
-            schedule[(int(m.group(2)), int(m.group(1)))] = amt
-    return schedule
+    def _parse(by_q: dict) -> dict[tuple[int, int], float]:
+        schedule: dict[tuple[int, int], float] = {}
+        for lbl, amt in by_q.items():
+            m = re.match(r"Q(\d) (\d{4})", lbl)
+            if m:
+                schedule[(int(m.group(2)), int(m.group(1)))] = amt
+        return schedule
+
+    return _parse(portfolio.repayment_by_quarter(q_labels)), _parse(portfolio.drawdown_by_quarter(q_labels))
 
 
 def _project_debt(
@@ -349,6 +330,7 @@ def _project_debt(
     current_outstanding: float,
     legacy_drawdowns: dict,
     legacy_repayments: dict,
+    revolving_start: int | None = None,
 ) -> tuple[float, float, float, float]:
     """Return (interest, drawdown, repayment, new_debt_issued)."""
     key = (year, q_num)
@@ -356,7 +338,7 @@ def _project_debt(
     repayment = legacy_repayments.get(key, 0.0)
 
     # After legacy schedule ends, assume revolving facility
-    if q_idx >= 8:
+    if revolving_start is not None and q_idx >= revolving_start:
         # Facility is fully drawn and revolving
         if current_outstanding < cfg.total_facility:
             drawdown = cfg.total_facility - current_outstanding

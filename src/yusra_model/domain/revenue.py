@@ -32,7 +32,8 @@ class SeasonalityProfile:
             self.q4 *= factor
 
     def for_quarter(self, q: int) -> float:
-        return [self.q1, self.q2, self.q3, self.q4][q % 4]
+        """Return seasonal weight for 1-based quarter (1–4)."""
+        return [self.q1, self.q2, self.q3, self.q4][(q - 1) % 4]
 
 
 @dataclass
