@@ -279,5 +279,62 @@ def init(output):
     click.echo(f"  yusra-model run --config {output} --output ./reports/")
 
 
+@cli.command()
+@click.option("--config", "-c", default="config/default.yaml",
+              help="Path to YAML config file (default: config/default.yaml)")
+@click.option("--verbose", "-v", is_flag=True, help="Enable debug logging")
+@click.option("--scenarios", "-s", default="base,upside,downside,stress",
+              help="Comma-separated scenario list (default: base,upside,downside,stress)")
+@click.option("--sensitivity", is_flag=True, default=False,
+              help="Run sensitivity analysis in addition to scenarios")
+def plan(config, verbose, scenarios, sensitivity):
+    """Run scenario analysis and strategic planning."""
+    _setup_logging(verbose)
+    cfg = load_config(config)
+
+    scenario_names = [s.strip() for s in scenarios.split(",") if s.strip()]
+
+    click.echo(f"\n{'='*60}")
+    click.echo(f"STRATEGIC PLANNING ANALYSIS — {cfg.company}")
+    click.echo(f"{'='*60}")
+    click.echo(f"  Scenarios: {', '.join(scenario_names)}")
+
+    from yusra_model.strategy.scenario import run_scenarios
+    from yusra_model.strategy.dashboard import print_comparison
+
+    results = run_scenarios(cfg, scenario_names)
+
+    click.echo(f"\n  ─── SCENARIO COMPARISON ───")
+    print_comparison(results)
+
+    if sensitivity:
+        click.echo(f"\n  ─── SENSITIVITY ANALYSIS ───")
+        from yusra_model.strategy.sensitivity import run_sensitivity
+
+        sens = run_sensitivity(cfg)
+        click.echo(f"\n  Base KPIs: ROE={sens.base_kpis.get('roe', 0):.1%}  "
+                   f"DSCR={sens.base_kpis.get('min_dscr', 0):.2f}  "
+                   f"Yr-5 NI={sens.base_kpis.get('last_year_net_income', 0):,.0f}")
+        click.echo()
+
+        for driver in ["growth", "price", "wc", "leverage", "cost_escalation"]:
+            points = sens.for_driver(driver)
+            if not points:
+                continue
+            click.echo(f"  Driver: {driver}")
+            click.echo(f"  {'Change':>8} {'ROE Δ':>10} {'DSCR Δ':>10} {'Yr-5 NI Δ':>14}")
+            click.echo(f"  {'─'*8} {'─'*10} {'─'*10} {'─'*14}")
+            for p in points:
+                click.echo(
+                    f"  {p.change_pct:>+7d}%  "
+                    f"{p.delta_kpis.get('roe', 0):>+9.1%}  "
+                    f"{p.delta_kpis.get('min_dscr', 0):>+9.2f}  "
+                    f"{p.delta_kpis.get('last_year_net_income', 0):>+13,.0f}"
+                )
+            click.echo()
+
+    click.echo(f"{'='*60}")
+
+
 if __name__ == "__main__":
     cli()
