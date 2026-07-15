@@ -1,0 +1,54 @@
+# YUSRA PHARMA PLC — Default Financial Model Configuration
+# Usage: yusra-model --config config.yaml
+
+company: YUSRA PHARMA PLC
+currency: ETB
+
+parameters:
+  opening_cash: 16927876.79
+  opening_inventory: 42000000
+  total_facility: 70000000
+  overheads_per_month: 1444225.35
+  profit_rate: 0.07
+  loan_tenor_quarters: 8
+
+exchanges:
+  baseline: 160
+  stress: 175
+
+sales:
+  cycle_options: ["3 Months", "6 Months"]
+  cash_ratio: 0.85
+  credit_ratio: 0.15
+  gross_profit_margin: 0.30
+
+loans:
+  - supplier: "Reyoung (CHINA)"
+    usd_value: 147354
+    etb_principal: 23580195.28
+    effective_rate: 160.00
+    start_date: "2026-04-07"
+    quarterly_repayment: 3360178
+  - supplier: "SCOTT EDIL (INDIA)"
+    usd_value: 194100
+    etb_principal: null
+    effective_rate: 160.00
+    start_date: "2026-10-01"
+    quarterly_repayment: null
+  - supplier: "TSM (MALAYSIA)"
+    usd_value: 42840
+    etb_principal: null
+    effective_rate: 160.00
+    start_date: "2026-10-10"
+    quarterly_repayment: null
+  - supplier: "Tinachin HENGSHENG"
+    usd_value: 61904
+    etb_principal: null
+    effective_rate: 160.00
+    start_date: "2026-10-10"
+    quarterly_repayment: null
+
+targets:
+  ceo_throughput: 240000000
+  plan_throughput: 140000000
+  min_sales_buffer: 500000

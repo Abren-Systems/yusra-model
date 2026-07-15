@@ -1,0 +1,8 @@
+services:
+  yusra-model:
+    build: .
+    image: yusra-model
+    command: run --config config/default.yaml --output /data/reports/
+    volumes:
+      - ./config:/app/config:ro
+      - ./reports:/data/reports
