@@ -1,10 +1,10 @@
-"""Sheet 5: Strategic Plan & Targets"""
+"""Sheet 5: Strategic Plan & Targets — driven by optimizer, not CEO desires."""
 from __future__ import annotations
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-from openpyxl.utils import get_column_letter
+from yusra_model.models.targets import build_targets, build_velocity_scenarios
+from yusra_model.models.optimizer import optimize
 
-# ═══ Module-level style constants ═══
 FONT_ACCENT  = Font(bold=True, color="FFFFFF", size=10, name="Calibri")
 FONT_SECTION = Font(bold=True, size=12, color="002060", name="Calibri")
 FONT_BOLD    = Font(bold=True, size=10, name="Calibri")
@@ -40,135 +40,157 @@ def build(ws, cfg, portfolio):
         ws.column_dimensions[chr(64 + col)].width = w
 
     ws.merge_cells('B1:F1')
-    c = ws['B1']
-    c.value = "STRATEGIC PLAN - TARGETS & OPERATIONAL ROADMAP"
-    c.font = Font(bold=True, size=14, color="002060", name="Calibri")
+    ws['B1'].value = "STRATEGIC PLAN - OPTIMAL VS ASPIRATIONAL TARGETS"
+    ws['B1'].font = Font(bold=True, size=14, color="002060", name="Calibri")
 
     ws.merge_cells('B2:F2')
-    c = ws['B2']
-    c.value = f"{cfg.company} | CFO Strategic Framework"
-    c.font = Font(italic=True, size=10, color="666666")
+    ws['B2'].value = f"{cfg.company} | Data-Driven Target Optimisation"
+    ws['B2'].font = Font(italic=True, size=10, color="666666")
+
+    opt = optimize(cfg)
+    targets = build_targets(cfg)
+    scenarios = build_velocity_scenarios(cfg)
 
     r = 4
-    _tr(ws, r, "PRIMARY OBJECTIVE: MAXIMISE LOAN RECYCLING THROUGHPUT", FONT_SECTION)
+    _tr(ws, r, "PRIMARY OBJECTIVE: MAXIMISE LOAN RECYCLING WITHIN CONSTRAINTS", FONT_SECTION)
     r += 1
+    binding = opt.optimum.binding_constraint
     _tr(ws, r,
-        f"Goal: Every ETB repaid must be immediately re-drawn. Target: {cfg.ceo_throughput_target:,.0f} ETB ({cfg.ceo_throughput_target / cfg.total_facility:.1f}x facility) within 2 years.",
+        f"Computed optimal throughput: {opt.optimum.max_throughput:,.0f} ETB ({opt.optimum.max_multiplier:.1f}x facility) "
+        f"at {opt.optimum.optimal_tenor}-quarter tenors. Bound by '{binding}'. "
+        f"Aspirational target {cfg.ceo_throughput_target:,.0f} exceeds feasible maximum by {opt.gap_to_aspirational:,.0f}.",
         FONT_10_ITAL)
     r += 2
 
-    # ▓▓▓ CEO 240M GOAL ▓▓▓
-    _tr(ws, r, f"CEO STRETCH GOAL: ETB {cfg.ceo_throughput_target:,.0f} THROUGHPUT ({cfg.ceo_throughput_target / cfg.total_facility:.1f}x FACILITY)", FONT_14R, RP, AC)
+    _tr(ws, r, f"OPTIMAL THROUGHPUT: ETB {opt.optimum.max_throughput:,.0f} ({opt.optimum.max_multiplier:.1f}x FACILITY)", FONT_14B_C, RP, AC)
     r += 1
-    _tr(ws, r, f"How to reach {cfg.ceo_throughput_target:,.0f} from current {portfolio.total_principal:,.0f} baseline", FONT_10_GREY)
+    _tr(ws, r, f"Tenor: {opt.optimum.optimal_tenor}-quarters | Constraint: {binding} | Breakeven: {opt.breakeven_throughput:,.0f}", FONT_10_GREY)
     r += 1
 
-    # 3-step compounding header
     for i, h in enumerate(['Step', 'Amount', 'How', 'Cumulative']):
         _hdr(ws, r, 2 + i, h)
     r += 1
 
-    for lbl, amt, desc, cum, pf in [
-        ('1. Initial 4 LCs', f"{cfg.total_facility / 1e6:.0f}M", 'Reyoung + Scott Edil + TSM + Tinachin (8-quarter tenors)', int(cfg.total_facility), GP),
-        ('2. Redraw repaid principal', f"{cfg.total_facility / 1e6:.0f}M", 'All principal repaid in 8 quarters -> immediately redrawn', int(cfg.total_facility * 2), BP),
-        (f'3. Redraw repaid REDRAWN principal', f"{cfg.ceo_throughput_target / 1e6 - cfg.total_facility * 2 / 1e6:.0f}M", 'Redrawn LCs use 4-quarter tenors -> repaid + redrawn AGAIN within 2yr', int(cfg.ceo_throughput_target), RP),
-    ]:
+    feasible = [s for s in opt.solutions if s.feasible]
+    steps_data = []
+    if feasible:
+        best = feasible[-1]
+        best_t = best.tenor_quarters
+        for si, sol in enumerate(feasible):
+            label = f'{si+1}. {sol.tenor_quarters}-quarter cycle'
+            amt = f'ETB {sol.throughput:,.0f}'
+            desc = f'{sol.multiplier:.1f}x turnover, min closing cash ETB {sol.min_closing_cash:,.0f}'
+            cum = int(sol.throughput)
+            pf = GP if si == len(feasible) - 1 else BP
+            steps_data.append((label, amt, desc, cum, pf))
+    else:
+        steps_data.append(('All tenors infeasible', 'ETB 0', 'No feasible recycling path within constraints', 0, RP))
+
+    for lbl, amt, desc, cum, pf in steps_data:
         _cv(ws, r, 2, lbl, FONT_BOLD, pf, THIN)
-        _cv(ws, r, 3, amt, FONT_14B_C, pf, THIN, ACT)
+        _cv(ws, r, 3, amt, Font(bold=True, size=12 if pf == GP else 10, color='C00000' if pf == GP else '002060', name='Calibri'), pf, THIN, ACT)
         _cv(ws, r, 4, desc, FONT_9, pf, THIN, AWT)
         _cv(ws, r, 5, '', None, pf, THIN)
         _cv(ws, r, 6, cum, FONT_12B, pf, THIN, ACT, '#,##0')
         r += 1
 
     r += 1
-    _tr(ws, r, "CRITICAL REQUIREMENTS FOR 240M CEO GOAL", FONT_SECTION)
+
+    _tr(ws, r, f"CONSTRAINT BREAKDOWN", FONT_SECTION)
     r += 1
-    for req in [
-        '[1] All NEW redrawn LCs must have 4-quarter (max) tenors - 8-quarter locks capacity too long',
-        '[2] First redraws (Q3/Q4 2026) mature in Q3/Q4 2027 - those ~3M chunks must be redrawn AGAIN',
-        '[3] From Q1 2027 ~8.75M frees each quarter -> draw 4-quarter LCs -> mature in 4 qtrs -> redraw again',
-        '[4] Prepayment clause: early repayment -> immediate full redraw for new 4-quarter cycle',
-        '[5] Avg LC tenor ~2.3 quarters (= 8 qtrs / 3.4 turns). Requires fast inventory turnover.',
-        '[6] Sales cycle MUST be 3 months. 6-month cycle makes 240M impossible.',
-    ]:
-        for cc in range(2, 7):
-            cell = ws.cell(r, cc)
-            cell.value = req if cc == 2 else ''
-            cell.font = FONT_9
-            cell.fill = GOLP
-            cell.alignment = AWT
+    constraints = _build_constraint_rows(opt)
+    for i, h in enumerate(['Constraint', 'Status', 'Detail', 'Recommendation']):
+        _hdr(ws, r, 2 + i, h)
+    r += 1
+    for con in constraints:
+        pf = RP if 'breach' in con['status'].lower() or 'binding' in con['status'].lower() else GP
+        _cv(ws, r, 2, con['name'], FONT_BOLD, pf, THIN)
+        _cv(ws, r, 3, con['status'], Font(bold=True, color="C00000" if pf == RP else "002060"), pf, THIN, ACT)
+        _cv(ws, r, 4, con['detail'], FONT_9, pf, THIN, AWT)
+        _cv(ws, r, 5, con['recommendation'], FONT_9_ITAL, pf, THIN, AWT)
         r += 1
 
     r += 1
-    _tr(ws, r, "VELOCITY SCENARIO COMPARISON", FONT_SECTION)
+    _tr(ws, r, "VELOCITY SCENARIO COMPARISON (OPTIMISER SWEEP)", FONT_SECTION)
     r += 1
     for i, h in enumerate(['Scenario', 'Avg LC Tenor', 'Turns in 8 Qtrs', 'Throughput', 'Feasibility']):
         _hdr(ws, r, 2 + i, h)
     r += 1
 
-    for sc, ten, turns, thr, feas, pf in [
-        ('Passive - no recycling', '8 quarters', '1.0x', '70M', 'Current state', YP),
-        ('Standard - redraw only', '8+4 qtrs', '1.7x', '120M', 'Redraw, no short tenors', YP),
-        ('Active - 4-qtr tenors', '4 quarters', '2.0x', '140M', 'Plan target', GP),
-        ('Aggressive - prepay+short', '~3 quarters', '2.5x', '175M', 'Stretch target', BP),
-        ('CEO - maximum velocity', '~2.3 quarters', '3.4x', '240M', '3-mo sales + 6-mo inv + prepay', RP),
-    ]:
-        ceo = 'CEO' in sc
-        f_name = FONT_BOLD_C if ceo else FONT_BOLD
-        f_thr = Font(bold=True, size=12 if ceo else 10, color='C00000' if ceo else '002060', name='Calibri')
-        _cv(ws, r, 2, sc, f_name, pf, THIN)
-        _cv(ws, r, 3, ten, FONT_BOLD, pf, THIN, ACT)
-        _cv(ws, r, 4, turns, FONT_BOLD, pf, THIN, ACT)
-        _cv(ws, r, 5, thr, f_thr, pf, THIN, ACT)
-        _cv(ws, r, 6, feas, FONT_9_ITAL, pf, THIN, AC)
+    for sc in scenarios:
+        is_asp = 'Aspirational' in sc.scenario
+        pf = RP if 'not achievable' in sc.feasibility or 'removing' in sc.feasibility else (GP if is_asp else BP)
+        if not is_asp and 'Constrained' in sc.feasibility:
+            pf = YP
+        f_name = FONT_BOLD_C if is_asp else FONT_BOLD
+        f_thr = Font(bold=True, size=12 if is_asp else 10, color='C00000' if is_asp else '002060', name='Calibri')
+        _cv(ws, r, 2, sc.scenario, f_name, pf, THIN)
+        _cv(ws, r, 3, sc.avg_tenor, FONT_BOLD, pf, THIN, ACT)
+        _cv(ws, r, 4, sc.turns, FONT_BOLD, pf, THIN, ACT)
+        _cv(ws, r, 5, sc.throughput, f_thr, pf, THIN, ACT)
+        _cv(ws, r, 6, sc.feasibility, FONT_9_ITAL, pf, THIN, AC)
         r += 1
 
     r += 1
-    _tr(ws, r, "RECYCLING TARGETS - SUMMARY", FONT_SECTION)
+    _tr(ws, r, "RECYCLING TARGETS — OPTIMISER OUTPUT", FONT_SECTION)
     r += 1
     for lbl, val, mult, method, pf in [
-        ('Minimum (Passive)', 'ETB 105M', '1.5x', '6-month cycle, basic redraws', YP),
-        ('Target (Active)', 'ETB 140M', '2.0x', '3-month cycle + active redraw', GP),
-        ('Stretch (Aggressive)', 'ETB 175M', '2.5x', '+ Prepayment + shorter tenors', BP),
-        (f'CEO GOAL (Maximum Velocity)', f'ETB {cfg.ceo_throughput_target / 1e6:.0f}M', f'{cfg.ceo_throughput_target / cfg.total_facility:.1f}x', 'All levers: 3-mo sales, 4-qtr LCs, prepay', RP),
+        ('Breakeven (Minimum Viable)', f'ETB {opt.breakeven_throughput:,.0f}', f'{opt.breakeven_multiplier:.1f}x', 'Covers overheads + loan profit charges', YP),
+        ('Optimal (Constraint-Bounded)', f'ETB {opt.optimum.max_throughput:,.0f}', f'{opt.optimum.max_multiplier:.1f}x', f'{opt.optimum.optimal_tenor}-quarter tenors, bound by {binding}', GP),
+        ('Passive (No Recycling)', f'ETB {cfg.total_facility:,.0f}', '1.0x', 'Single pass, 8-quarter tenors, no redraws', BP),
     ]:
-        ceo = 'CEO' in lbl
-        f_lbl = FONT_BOLD_C if ceo else FONT_BOLD
-        f_val = Font(bold=True, size=14 if ceo else 12, color='C00000' if ceo else '002060', name='Calibri')
-        _cv(ws, r, 2, lbl, f_lbl, pf, THIN)
-        _cv(ws, r, 3, val, f_val, pf, THIN, ACT)
+        _cv(ws, r, 2, lbl, FONT_BOLD, pf, THIN)
+        _cv(ws, r, 3, val, Font(bold=True, size=14 if lbl.startswith('Optimal') else 12, color='C00000' if lbl.startswith('Optimal') else '002060', name='Calibri'), pf, THIN, ACT)
         _cv(ws, r, 4, mult, FONT_BOLD, pf, THIN, ACT)
         _cv(ws, r, 5, method, FONT_9, pf, THIN, AWT)
-        _cv(ws, r, 6, '240M!' if ceo else '', None, pf, THIN, ACT if ceo else None)
+        _cv(ws, r, 6, '' if lbl.startswith('Optimal') else '', None, pf, THIN)
         r += 1
 
     r += 2
-    _tr(ws, r, "OPERATIONAL PHASES - DRIVEN BY 240M TARGET", FONT_SECTION)
+    _tr(ws, r, "OPERATIONAL PHASES — DRIVEN BY OPTIMAL THROUGHPUT", FONT_SECTION)
     r += 1
-    for ph, amt, desc in [
-        ('Q3 2026 Phase 1: Seed', '3.36M repaid', 'Sell opening+Reyoung stock. First repayment frees 2.95M principal. Redraw immediately as 4-quarter LC.'),
-        ('Q4 2026 Phase 2: Scale', '3.36M+46.4M new', 'New LCs settle (Scott,TSM,Tinachin). Two repayments free 5.9M. Redraw supplementary 4-quarter LCs.'),
-        ('2027 Phase 3: Full Cycle', '9.98M/qtr repaying', 'All 4 loans repaying. Each quarter frees ~7.5M principal. Draw 4-quarter LCs for 2nd-cycle redraws.'),
-        ('2028 Phase 4: Harvest', '6.6M/qtr to 0', 'Reyoung finishes Q2, others Q4. Aggressively redraw freed capacity. Final push to 240M.'),
-    ]:
-        cell = ws.cell(r, 2)
-        cell.value = ph
-        cell.font = Font(bold=True, size=10, color="002060", name="Calibri")
-        cell = ws.cell(r, 3)
-        cell.value = amt
-        cell.font = FONT_BOLD
-        cell.alignment = ACT
-        cell = ws.cell(r, 4)
-        cell.value = desc
-        cell.font = FONT_9
-        cell.alignment = AWT
+    best_tenor = opt.optimum.optimal_tenor
+    if feasible:
+        best_sol = feasible[-1]
+        phases = [
+            ('Phase 1: Initial deployment', f'ETB {cfg.total_facility:,.0f} drawn',
+             f'Full facility deployed as {best_tenor}-quarter Murabaha LCs. Inventory purchased.'),
+            ('Phase 2: Redraw repaid principal', f'~ETB {best_sol.throughput - cfg.total_facility:,.0f} recycled',
+             f'Principal repaid frees capacity. Redraw immediately as {best_tenor}-quarter LCs. Repeat each cycle.'),
+            ('Phase 3: Full velocity achieved', f'ETB {best_sol.throughput:,.0f} total throughput',
+             f'{best_sol.multiplier:.1f}x facility utilisation. Min closing cash ETB {best_sol.min_closing_cash:,.0f} — within constraints.'),
+        ]
+    else:
+        phases = [('No feasible path', '—', 'Relax constraints or increase facility/funding.')]
+    for ph, amt, desc in phases:
+        ws.cell(r, 2, ph).font = Font(bold=True, size=10, color="002060", name="Calibri")
+        ws.cell(r, 3, amt).font = FONT_BOLD
+        ws.cell(r, 3).alignment = ACT
+        ws.cell(r, 4, desc).font = FONT_9
+        ws.cell(r, 4).alignment = AWT
         r += 1
 
 
-# ─── Low-level helpers (set styles directly, no parameter passing of style objects) ───
+def _build_constraint_rows(opt) -> list[dict]:
+    binding = opt.optimum.binding_constraint
+    rows = [
+        dict(name='DSCR (≥1.2)', status='Pass' if opt.optimum.dscr_ok else 'Binding',
+             detail=f'DSCR={opt.optimum.dscr_at_limit:.2f}' if not opt.optimum.dscr_ok else 'No constraint breach',
+             recommendation='Extend loan tenor to reduce quarterly repayments' if not opt.optimum.dscr_ok else 'Maintain current tenor'),
+        dict(name='Cash Buffer (min ETB 0)', status='Pass' if opt.optimum.min_cash >= 0 else 'Binding',
+             detail=f'Min closing cash ETB {opt.optimum.min_cash:,.0f}',
+             recommendation='Increase equity contribution or reduce facility draw' if opt.optimum.min_cash < 0 else 'OK'),
+        dict(name='Facility Ceiling', status='Pass' if opt.optimum.max_principal <= opt.optimum.facility else 'Binding',
+             detail=f'Max principal ETB {opt.optimum.max_principal:,.0f} vs ceiling ETB {opt.optimum.facility:,.0f}',
+             recommendation='Request higher facility limit or reduce throughput velocity' if opt.optimum.max_principal > opt.optimum.facility else 'OK'),
+    ]
+    for r in rows:
+        if r['name'].startswith(binding):
+            r['status'] = 'Binding'
+    return rows
+
 
 def _tr(ws, r, text, font, fill=None, align=None):
-    """Title row: write text across B-F."""
     for c in range(2, 7):
         cell = ws.cell(r, c)
         cell.value = text if c == 2 else ''
@@ -180,7 +202,6 @@ def _tr(ws, r, text, font, fill=None, align=None):
 
 
 def _hdr(ws, r, c, text):
-    """Header cell with dark background."""
     cell = ws.cell(r, c, text)
     cell.font = FONT_ACCENT
     cell.fill = HP
@@ -189,7 +210,6 @@ def _hdr(ws, r, c, text):
 
 
 def _cv(ws, r, c, value, font, fill, border, align=None, nf=None):
-    """Cell value with direct style application."""
     cell = ws.cell(r, c, value)
     if font:
         cell.font = font

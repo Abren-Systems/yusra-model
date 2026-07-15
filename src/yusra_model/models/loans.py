@@ -1,8 +1,7 @@
 """Murabaha loan models and repayment schedule engine"""
 from __future__ import annotations
-from dataclasses import dataclass, field
-from datetime import date, timedelta
-import math
+from dataclasses import dataclass
+from datetime import date
 from typing import Optional
 
 
@@ -25,7 +24,7 @@ def _add_quarters(d: date, n: int) -> date:
     return date(y, (q - 1) * 3 + 1, 1)
 
 
-@dataclass
+@dataclass(frozen=True)
 class Loan:
     supplier: str
     usd_value: float
@@ -38,10 +37,12 @@ class Loan:
 
     def __post_init__(self):
         if self.etb_principal is None and self.usd_value:
-            self.etb_principal = round(self.usd_value * self.effective_rate, 2)
+            object.__setattr__(self, "etb_principal",
+                               round(self.usd_value * self.effective_rate, 2))
         if self.quarterly_repayment is None and self.etb_principal:
             total_profit = round(self.etb_principal * (self.tenor_quarters / 4) * self.profit_rate, 2)
-            self.quarterly_repayment = round(self.etb_principal / self.tenor_quarters + total_profit / self.tenor_quarters, 2)
+            object.__setattr__(self, "quarterly_repayment",
+                               round(self.etb_principal / self.tenor_quarters + total_profit / self.tenor_quarters, 2))
 
     @property
     def total_profit(self) -> float:
@@ -91,12 +92,16 @@ class Loan:
         return entries
 
 
-@dataclass
+@dataclass(frozen=True)
 class Portfolio:
-    """Collection of loans with calculation helpers."""
-    loans: list[Loan]
+    """Collection of loans with calculation helpers. Immutable."""
+    loans: tuple[Loan, ...]
     total_facility: float
     profit_rate: float
+
+    def __post_init__(self):
+        if isinstance(self.loans, list):
+            object.__setattr__(self, "loans", tuple(self.loans))
 
     @property
     def total_principal(self) -> float:
@@ -117,22 +122,32 @@ class Portfolio:
     def remaining_facility(self) -> float:
         return round(self.total_facility - self.total_principal, 2)
 
-    def allocate_remaining(self):
-        """Allocate remaining facility proportionally to loans without explicit principal."""
+    def with_allocated_remaining(self) -> Portfolio:
+        """Return a new Portfolio with remaining facility allocated to loans
+        that have no explicit principal set. Original Portfolio is unchanged."""
         fixed = [l for l in self.loans if l.etb_principal is not None and l.quarterly_repayment is not None]
         variable = [l for l in self.loans if l.etb_principal is None or l.quarterly_repayment is None]
         if not variable:
-            return
+            return self
         used = sum(l.etb_principal for l in fixed)
         remaining = self.total_facility - used
         total_usd = sum(l.usd_value for l in variable)
         if total_usd == 0:
-            return
-        for l in variable:
-            share = remaining * l.usd_value / total_usd
-            l.etb_principal = round(share, 2)
-            total_profit = round(l.etb_principal * (l.tenor_quarters / 4) * self.profit_rate, 2)
-            l.quarterly_repayment = round(l.etb_principal / l.tenor_quarters + total_profit / l.tenor_quarters, 2)
+            return self
+        new_loans = list(self.loans)
+        for i, l in enumerate(self.loans):
+            if l in variable:
+                share = remaining * l.usd_value / total_usd
+                new_etb = round(share, 2)
+                total_profit = round(new_etb * (l.tenor_quarters / 4) * self.profit_rate, 2)
+                new_qr = round(new_etb / l.tenor_quarters + total_profit / l.tenor_quarters, 2)
+                new_loans[list(self.loans).index(l)] = Loan(
+                    supplier=l.supplier, usd_value=l.usd_value,
+                    etb_principal=new_etb, effective_rate=l.effective_rate,
+                    start_date=l.start_date, quarterly_repayment=new_qr,
+                    tenor_quarters=l.tenor_quarters, profit_rate=l.profit_rate,
+                )
+        return Portfolio(tuple(new_loans), self.total_facility, self.profit_rate)
 
     def repayment_by_quarter(self, quarter_labels: list[str]) -> dict[str, float]:
         result = {q: 0.0 for q in quarter_labels}

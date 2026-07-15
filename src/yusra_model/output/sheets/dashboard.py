@@ -1,10 +1,10 @@
-"""Sheet 4: Liquidity Dashboard"""
+"""Sheet 4: Liquidity Dashboard — dual cycle aware"""
 from __future__ import annotations
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.chart import LineChart, BarChart, Reference
 from openpyxl.utils import get_column_letter
-from yusra_model.models.cashflow import CashFlowProjection, QUARTER_LABELS
+from yusra_model.models.cashflow import CashFlowProjection, CycleProjection, QUARTER_LABELS
 
 ACCENT_FILL = PatternFill("solid", fgColor="BF8F00")
 ACCENT_FONT = Font(bold=True, color="FFFFFF", size=10, name="Calibri")
@@ -23,7 +23,17 @@ THIN = Border(left=Side('thin', 'C0C0C0'), right=Side('thin', 'C0C0C0'),
               top=Side('thin', 'C0C0C0'), bottom=Side('thin', 'C0C0C0'))
 
 
-def build(ws: openpyxl.worksheet.worksheet.Worksheet, cfg, portfolio, proj: CashFlowProjection) -> None:
+def _cv(ws, r, c, val, font=None, fill=None, border=None, align=None, nf=None):
+    cell = ws.cell(r, c, val)
+    if font: cell.font = font
+    if fill: cell.fill = fill
+    if border: cell.border = border
+    if align: cell.alignment = align
+    if nf: cell.number_format = nf
+
+
+def build(ws: openpyxl.worksheet.worksheet.Worksheet, cfg, portfolio,
+          proj: CashFlowProjection, active_proj: CycleProjection) -> None:
     ws.title = "Liquidity_Dashboard"
     ws.sheet_properties.tabColor = "BF8F00"
     ws.sheet_view.showGridLines = False
@@ -35,17 +45,17 @@ def build(ws: openpyxl.worksheet.worksheet.Worksheet, cfg, portfolio, proj: Cash
     ws['B1'] = "LIQUIDITY DASHBOARD — STRATEGIC PLANNING"
     ws['B1'].font = TITLE_FONT
     ws.merge_cells('B2:J2')
-    ws['B2'] = f"{cfg.company} — Murabaha Revolving Loan Facility (ETB {cfg.total_facility:,.0f})"
+    ws['B2'] = f"{cfg.company} — Murabaha Revolving Loan Facility (ETB {cfg.total_facility:,.0f}) | Active: {active_proj.cycle_name}"
     ws['B2'].font = Font(italic=True, size=11, color="666666", name="Calibri")
 
-    # KPI row
     qlabels = QUARTER_LABELS
-    first_row = proj.rows[0] if proj.rows else None
+    first_row = active_proj.rows[0] if active_proj.rows else None
 
+    # KPI row
     kpi_start = 4
     kpis = [
-        ("Net Cash Position\n(Current Quarter)", first_row.closing_cash if first_row else 0, FMT_NUM2, "Closing cash balance\n= Opening + Net CF"),
-        ("Facility Utilization\n(Current)", first_row.facility_util_pct if first_row else 0, FMT_PCT, "Outstanding / 70M"),
+        ("Net Cash Position\n(Current Quarter)", first_row.closing_cash if first_row else 0, FMT_NUM2, "Closing cash balance"),
+        ("Facility Utilization\n(Current)", first_row.facility_util_pct if first_row else 0, FMT_PCT, f"Outstanding / {cfg.total_facility:,.0f}"),
         ("Total Drawdowns\n(All Loans)", portfolio.total_principal, FMT_NUM, "Total ETB principal drawn"),
         ("Inventory\nTurnover (Annualized)", "4x (3m) / 2x (6m)", None, "Depends on sales cycle"),
         ("Total Quarterly\nRepayment", portfolio.total_quarterly_repayment, FMT_NUM, "Sum of all 4 loan payments"),
@@ -55,8 +65,7 @@ def build(ws: openpyxl.worksheet.worksheet.Worksheet, cfg, portfolio, proj: Cash
         ws.cell(kpi_start - 1, kc, label).font = Font(bold=True, size=9, color="333333", name="Calibri")
         ws.cell(kpi_start - 1, kc).alignment = Alignment(horizontal='center', vertical='bottom', wrap_text=True)
         cell = ws.cell(kpi_start, kc, val)
-        if nf:
-            cell.number_format = nf
+        if nf: cell.number_format = nf
         cell.font = Font(bold=True, size=16, color="BF8F00", name="Calibri")
         cell.alignment = Alignment(horizontal='center', vertical='center')
         cell.fill = FILL_KPI
@@ -65,10 +74,10 @@ def build(ws: openpyxl.worksheet.worksheet.Worksheet, cfg, portfolio, proj: Cash
         ws.cell(kpi_start + 1, kc, desc).font = Font(size=8, italic=True, color="888888", name="Calibri")
         ws.cell(kpi_start + 1, kc).alignment = Alignment(horizontal='center', wrap_text=True)
 
-    # Quarterly summary table
+    # Quarterly summary table (active cycle)
     sum_row = kpi_start + 4
     ws.merge_cells(f'B{sum_row}:J{sum_row}')
-    ws.cell(sum_row, 2, "QUARTERLY LIQUIDITY SUMMARY").font = SECTION_FONT
+    ws.cell(sum_row, 2, f"QUARTERLY LIQUIDITY SUMMARY ({active_proj.cycle_name})").font = SECTION_FONT
     sum_row += 1
     sum_headers = ["Quarter", "Closing Cash", "Net CF", "Sales Inflow", "Repayments", "Facility Util %", "Inventory"]
     for i, h in enumerate(sum_headers):
@@ -78,23 +87,23 @@ def build(ws: openpyxl.worksheet.worksheet.Worksheet, cfg, portfolio, proj: Cash
 
     for qi, q in enumerate(qlabels):
         sr = sum_row + 1 + qi
-        row = proj.rows[qi] if qi < len(proj.rows) else None
+        row = active_proj.rows[qi] if qi < len(active_proj.rows) else None
         if row is None:
             continue
         ws.cell(sr, 2, q).font = VAL_FONT; ws.cell(sr, 2).alignment = Alignment(horizontal='center'); ws.cell(sr, 2).border = THIN
         ws.cell(sr, 3, row.closing_cash).number_format = FMT_NUM2; ws.cell(sr, 3).border = THIN
         ws.cell(sr, 4, row.net_cash_flow).number_format = FMT_NUM2; ws.cell(sr, 4).border = THIN
-        ws.cell(sr, 5, row.sales_inflow_3m).number_format = FMT_NUM; ws.cell(sr, 5).border = THIN
+        ws.cell(sr, 5, row.sales_inflow).number_format = FMT_NUM; ws.cell(sr, 5).border = THIN
         ws.cell(sr, 6, row.repayments).number_format = FMT_NUM; ws.cell(sr, 6).border = THIN
         ws.cell(sr, 7, row.facility_util_pct).number_format = FMT_PCT; ws.cell(sr, 7).border = THIN
         ws.cell(sr, 8, row.closing_inventory).number_format = FMT_NUM; ws.cell(sr, 8).border = THIN
 
-    # Charts
+    # Charts (use active cycle rows)
     chart_start = sum_row + 1 + len(qlabels) + 3
 
-    # Chart 1: Cash Balance Trend
+    # Chart 1: Cash Balance Trend (active cycle)
     chart1 = LineChart()
-    chart1.title = "Cash Balance Trend (ETB)"
+    chart1.title = f"Cash Balance Trend ({active_proj.cycle_name})"
     chart1.style = 10; chart1.y_axis.title = "ETB"; chart1.x_axis.title = "Quarter"
     chart1.width = 20; chart1.height = 12
     data_ref = Reference(ws, min_col=3, min_row=sum_row, max_row=sum_row + len(qlabels))
@@ -143,7 +152,7 @@ def build(ws: openpyxl.worksheet.worksheet.Worksheet, cfg, portfolio, proj: Cash
     strategic_kpis = [
         ("Minimum Sales\nTarget (Monthly)", round((monthly_oh + loan_profit_monthly) / cfg.gross_profit_margin, 2), FMT_NUM, "Breakeven at 30% GM"),
         ("Cash Buffer\nRequirement", min_cash_buffer, FMT_NUM2, "3 months overheads"),
-        ("Loan Profit\nper Month", round(loan_profit_monthly, 2), FMT_NUM2, f"{cfg.profit_rate*100:.0f}% x {total_loan:,.0f} x 2yr / 24mo"),
+        ("Loan Profit\nper Month", round(loan_profit_monthly, 2), FMT_NUM2, f"{cfg.profit_rate*100:.0f}% x {total_loan:,.0f}"),
         ("Total Principal\nFinanced", portfolio.total_principal, FMT_NUM, "All 4 loans"),
         ("Total Profit\nCharges (8 qtrs)", portfolio.total_profit, FMT_NUM2, f"{cfg.profit_rate*100:.0f}% flat Murabaha"),
     ]
@@ -161,27 +170,29 @@ def build(ws: openpyxl.worksheet.worksheet.Worksheet, cfg, portfolio, proj: Cash
         ws.cell(skpi_row + 3, kc, desc).font = Font(size=8, italic=True, color="888888", name="Calibri")
         ws.cell(skpi_row + 3, kc).alignment = Alignment(horizontal='center', wrap_text=True)
 
-    # Recycling KPIs
+    # Recycling KPIs — driven by optimizer
+    from yusra_model.models.optimizer import optimize as _opt
+    _o = _opt(cfg)
     recycle_row = skpi_row + 5
-    ws.cell(recycle_row, 2, "RECYCLING KPIs").font = SECTION_FONT
+    ws.cell(recycle_row, 2, "RECYCLING KPIs — OPTIMISER OUTPUT").font = SECTION_FONT
     dr = recycle_row + 1
     recycling_kpis = [
         ("Total Initial\nThroughput", portfolio.total_principal, FMT_NUM, f"{len(portfolio.loans)} LCs at facility start"),
-        ("CEO Throughput\nTarget", cfg.ceo_throughput_target, FMT_NUM, f"{cfg.ceo_throughput_target/cfg.total_facility:.1f}x facility utilisation"),
-        ("Required Avg\nLC Tenor", "~2.3 qtrs", None, f"{cfg.ceo_throughput_target/cfg.total_facility:.1f} turns in 8 quarters"),
-        ("Recycle\nEfficiency", f"{cfg.ceo_throughput_target/cfg.total_facility:.1f}x", None, f"{cfg.ceo_throughput_target/cfg.total_facility:.1f} = target ratio"),
-        ("Required Sales\nCycle", "3 Months", None, "Critical for velocity"),
+        ("Optimal\nThroughput", _o.optimum.max_throughput, FMT_NUM, f"{_o.optimum.max_multiplier:.1f}x facility — bound by {_o.optimum.binding_constraint}"),
+        ("Optimal Avg\nLC Tenor", f"{_o.optimum.optimal_tenor} qtrs", None, "covers overheads + DSCR ≥1.2 + cash buffer"),
+        ("Recycle\nEfficiency", f"{_o.optimum.max_multiplier:.1f}x", None, "optimal ratio"),
+        ("Gap to\nAspirational", f"ETB {_o.gap_to_aspirational:,.0f}", None, f"Aspirational {cfg.ceo_throughput_target:,.0f} exceeds optimum"),
     ]
     for i, (lbl, val, nf, desc) in enumerate(recycling_kpis):
         kc = 2 + i
-        is_str = "CEO" in lbl or "240" in str(val)
-        ws.cell(dr - 1, kc, lbl).font = Font(bold=True, size=9, color="002060", name="Calibri")
-        ws.cell(dr - 1, kc).alignment = Alignment(horizontal='center', wrap_text=True, vertical='bottom')
+        is_gap = "Gap" in lbl
+        cell_top = ws.cell(dr - 1, kc, lbl)
+        cell_top.font = Font(bold=True, size=9, color="002060", name="Calibri")
+        cell_top.alignment = Alignment(horizontal='center', wrap_text=True, vertical='bottom')
         cell = ws.cell(dr, kc, val)
-        if nf:
-            cell.number_format = nf
-        cell.fill = PatternFill("solid", fgColor="FCE4EC" if is_str else "E8EAF6")
-        cell.font = Font(bold=True, size=14, color="C00000" if is_str else "002060", name="Calibri")
+        if nf: cell.number_format = nf
+        cell.fill = PatternFill("solid", fgColor="FCE4EC" if is_gap else "E8EAF6")
+        cell.font = Font(bold=True, size=14, color="C00000" if is_gap else "002060", name="Calibri")
         cell.alignment = Alignment(horizontal='center', vertical='center')
         cell.border = Border(left=Side('medium', '002060'), right=Side('medium', '002060'),
                              top=Side('medium', '002060'), bottom=Side('medium', '002060'))

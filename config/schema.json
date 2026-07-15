@@ -5,6 +5,7 @@
   "properties": {
     "company": {"type": "string"},
     "currency": {"type": "string"},
+
     "parameters": {
       "type": "object",
       "required": ["opening_cash", "opening_inventory", "total_facility", "overheads_per_month", "profit_rate", "loan_tenor_quarters"],
@@ -17,6 +18,7 @@
         "loan_tenor_quarters": {"type": "integer", "minimum": 1}
       }
     },
+
     "exchanges": {
       "type": "object",
       "required": ["baseline", "stress"],
@@ -25,6 +27,7 @@
         "stress": {"type": "number", "minimum": 1}
       }
     },
+
     "sales": {
       "type": "object",
       "required": ["cycle_options", "cash_ratio", "credit_ratio", "gross_profit_margin"],
@@ -35,6 +38,7 @@
         "gross_profit_margin": {"type": "number", "minimum": 0, "maximum": 1}
       }
     },
+
     "loans": {
       "type": "array",
       "items": {
@@ -50,12 +54,249 @@
         }
       }
     },
+
     "targets": {
       "type": "object",
       "properties": {
         "ceo_throughput": {"type": "number"},
         "plan_throughput": {"type": "number"},
         "min_sales_buffer": {"type": "number"}
+      }
+    },
+
+    "strategy": {
+      "type": "object",
+      "properties": {
+        "planning_horizon_years": {"type": "integer", "minimum": 1},
+        "base_year": {"type": "integer"},
+        "targets": {"$ref": "#/definitions/businessTargets"}
+      }
+    },
+
+    "revenue": {
+      "type": "object",
+      "properties": {
+        "product_lines": {
+          "type": "array",
+          "items": {"$ref": "#/definitions/productLine"}
+        },
+        "seasonality": {"$ref": "#/definitions/seasonalityProfile"},
+        "cash_ratio": {"type": "number", "minimum": 0, "maximum": 1},
+        "credit_ratio": {"type": "number", "minimum": 0, "maximum": 1},
+        "credit_terms_days": {"type": "integer", "minimum": 0},
+        "bad_debt_rate": {"type": "number", "minimum": 0, "maximum": 1},
+        "customer_segments": {
+          "type": "array",
+          "items": {"$ref": "#/definitions/customerSegment"}
+        }
+      }
+    },
+
+    "costs": {
+      "type": "object",
+      "properties": {
+        "cogs_breakdown": {"$ref": "#/definitions/cogsBreakdown"},
+        "operating_expenses": {"$ref": "#/definitions/operatingExpenses"},
+        "headcount": {"$ref": "#/definitions/headcountPlan"},
+        "escalation_rate": {"type": "number", "minimum": 0},
+        "other_fixed_costs_per_month": {"type": "number", "minimum": 0}
+      }
+    },
+
+    "capital": {
+      "type": "object",
+      "properties": {
+        "equity": {"$ref": "#/definitions/equityPosition"},
+        "debt": {
+          "type": "array",
+          "items": {"$ref": "#/definitions/debtFacility"}
+        },
+        "target_debt_to_equity": {"type": "number", "minimum": 0},
+        "target_dscr": {"type": "number", "minimum": 1}
+      }
+    },
+
+    "fixed_assets": {
+      "type": "object",
+      "properties": {
+        "existing_assets": {
+          "type": "array",
+          "items": {"$ref": "#/definitions/depreciableAsset"}
+        },
+        "capex_plan": {"$ref": "#/definitions/capexPlan"}
+      }
+    },
+
+    "working_capital": {
+      "type": "object",
+      "properties": {
+        "inventory": {"$ref": "#/definitions/inventoryPolicy"},
+        "receivables": {"$ref": "#/definitions/receivablesPolicy"},
+        "payables": {"$ref": "#/definitions/payablesPolicy"},
+        "cash_conversion_cycle_target": {"type": "integer", "minimum": 1}
+      }
+    },
+
+    "taxation": {
+      "type": "object",
+      "properties": {
+        "corporate_income_tax_rate": {"type": "number", "minimum": 0, "maximum": 1},
+        "vat_rate": {"type": "number", "minimum": 0, "maximum": 1},
+        "withholding_tax_rate": {"type": "number", "minimum": 0, "maximum": 1},
+        "tax_loss_carryforward_years": {"type": "integer", "minimum": 0},
+        "tax_installment_frequency_months": {"type": "integer", "minimum": 1}
+      }
+    }
+  },
+
+  "definitions": {
+    "businessTargets": {
+      "type": "object",
+      "properties": {
+        "revenue_growth_annual": {"type": "number"},
+        "gross_margin": {"type": "number", "minimum": 0, "maximum": 1},
+        "operating_margin": {"type": "number"},
+        "net_margin": {"type": "number"},
+        "roe": {"type": "number"},
+        "roic": {"type": "number"},
+        "dscr": {"type": "number", "minimum": 1},
+        "current_ratio": {"type": "number", "minimum": 0},
+        "lt_debt_to_ebitda": {"type": "number", "minimum": 0},
+        "debt_to_equity": {"type": "number", "minimum": 0},
+        "dividend_payout_ratio": {"type": "number", "minimum": 0, "maximum": 1},
+        "cash_conversion_cycle_days": {"type": "integer", "minimum": 1},
+        "inventory_turns": {"type": "number", "minimum": 0}
+      }
+    },
+    "productLine": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": {"type": "string"},
+        "base_volume": {"type": "number", "minimum": 0},
+        "avg_price": {"type": "number", "minimum": 0},
+        "growth_rate": {"type": "number"},
+        "cogs_per_unit": {"type": "number", "minimum": 0},
+        "gross_margin": {"type": "number", "minimum": 0, "maximum": 1},
+        "description": {"type": "string"}
+      }
+    },
+    "seasonalityProfile": {
+      "type": "object",
+      "properties": {
+        "q1": {"type": "number", "minimum": 0, "maximum": 1},
+        "q2": {"type": "number", "minimum": 0, "maximum": 1},
+        "q3": {"type": "number", "minimum": 0, "maximum": 1},
+        "q4": {"type": "number", "minimum": 0, "maximum": 1}
+      }
+    },
+    "customerSegment": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": {"type": "string"},
+        "revenue_pct": {"type": "number", "minimum": 0, "maximum": 1},
+        "payment_terms_days": {"type": "integer", "minimum": 0},
+        "bad_debt_rate": {"type": "number", "minimum": 0, "maximum": 1}
+      }
+    },
+    "cogsBreakdown": {
+      "type": "object",
+      "properties": {
+        "raw_materials_pct": {"type": "number", "minimum": 0, "maximum": 1},
+        "import_duties_pct": {"type": "number", "minimum": 0, "maximum": 1},
+        "freight_pct": {"type": "number", "minimum": 0, "maximum": 1},
+        "direct_labor_pct": {"type": "number", "minimum": 0, "maximum": 1},
+        "other_direct_pct": {"type": "number", "minimum": 0, "maximum": 1}
+      }
+    },
+    "opExCategory": {
+      "type": "object",
+      "properties": {
+        "fixed_per_month": {"type": "number", "minimum": 0},
+        "variable_pct_of_revenue": {"type": "number", "minimum": 0, "maximum": 1},
+        "description": {"type": "string"}
+      }
+    },
+    "operatingExpenses": {
+      "type": "object",
+      "properties": {
+        "sales_marketing": {"$ref": "#/definitions/opExCategory"},
+        "distribution": {"$ref": "#/definitions/opExCategory"},
+        "admin": {"$ref": "#/definitions/opExCategory"},
+        "r_and_d": {"$ref": "#/definitions/opExCategory"},
+        "other": {"$ref": "#/definitions/opExCategory"}
+      }
+    },
+    "headcountPlan": {
+      "type": "object",
+      "properties": {
+        "total_headcount": {"type": "integer", "minimum": 0},
+        "avg_cost_per_employee_per_month": {"type": "number", "minimum": 0},
+        "hiring_growth_rate": {"type": "number", "minimum": 0},
+        "salary_escalation_rate": {"type": "number", "minimum": 0}
+      }
+    },
+    "equityPosition": {
+      "type": "object",
+      "properties": {
+        "paid_in_capital": {"type": "number", "minimum": 0},
+        "retained_earnings": {"type": "number"},
+        "additional_paid_in": {"type": "number", "minimum": 0}
+      }
+    },
+    "debtFacility": {
+      "type": "object",
+      "properties": {
+        "facility": {"type": "number", "minimum": 0},
+        "type": {"type": "string"},
+        "profit_rate": {"type": "number", "minimum": 0, "maximum": 1},
+        "tenor_quarters": {"type": "integer", "minimum": 1},
+        "purpose": {"type": "string"},
+        "outstanding": {"type": "number", "minimum": 0}
+      }
+    },
+    "depreciableAsset": {
+      "type": "object",
+      "properties": {
+        "cost": {"type": "number", "minimum": 0},
+        "accumulated_depreciation": {"type": "number", "minimum": 0},
+        "useful_life_years": {"type": "integer", "minimum": 1},
+        "depreciation_method": {"type": "string"},
+        "description": {"type": "string"}
+      }
+    },
+    "capexPlan": {
+      "type": "object",
+      "properties": {
+        "year_1": {"type": "number", "minimum": 0},
+        "year_2": {"type": "number", "minimum": 0},
+        "year_3": {"type": "number", "minimum": 0},
+        "year_4": {"type": "number", "minimum": 0},
+        "year_5": {"type": "number", "minimum": 0}
+      }
+    },
+    "inventoryPolicy": {
+      "type": "object",
+      "properties": {
+        "raw_materials_days": {"type": "integer", "minimum": 0},
+        "wip_days": {"type": "integer", "minimum": 0},
+        "finished_goods_days": {"type": "integer", "minimum": 0},
+        "safety_stock_days": {"type": "integer", "minimum": 0},
+        "obsolescence_rate": {"type": "number", "minimum": 0, "maximum": 1}
+      }
+    },
+    "receivablesPolicy": {
+      "type": "object",
+      "properties": {
+        "dso_target": {"type": "integer", "minimum": 0},
+        "bad_debt_rate": {"type": "number", "minimum": 0, "maximum": 1}
+      }
+    },
+    "payablesPolicy": {
+      "type": "object",
+      "properties": {
+        "dpo_target": {"type": "integer", "minimum": 0}
       }
     }
   }

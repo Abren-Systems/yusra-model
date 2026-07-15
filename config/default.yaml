@@ -1,9 +1,17 @@
-# YUSRA PHARMA PLC — Default Financial Model Configuration
-# Usage: yusra-model --config config.yaml
+# YUSRA PHARMA PLC — Full Business Model Configuration
+# This config drives both the legacy loan-recycling model and
+# the new comprehensive business planning engine.
+#
+# Sections marked [LEGACY] are required for backward compatibility.
+# Sections marked [NEW] are optional — the model falls back to
+# sensible defaults if omitted.
 
 company: YUSRA PHARMA PLC
 currency: ETB
 
+# =============================================================================
+# [LEGACY] FINANCIAL PARAMETERS
+# =============================================================================
 parameters:
   opening_cash: 16927876.79
   opening_inventory: 42000000
@@ -12,16 +20,25 @@ parameters:
   profit_rate: 0.07
   loan_tenor_quarters: 8
 
+# =============================================================================
+# [LEGACY] EXCHANGE RATES
+# =============================================================================
 exchanges:
   baseline: 160
   stress: 175
 
+# =============================================================================
+# [LEGACY] SALES ASSUMPTIONS
+# =============================================================================
 sales:
   cycle_options: ["3 Months", "6 Months"]
   cash_ratio: 0.85
   credit_ratio: 0.15
   gross_profit_margin: 0.30
 
+# =============================================================================
+# [LEGACY] LOAN PIPELINE
+# =============================================================================
 loans:
   - supplier: "Reyoung (CHINA)"
     usd_value: 147354
@@ -48,7 +65,191 @@ loans:
     start_date: "2026-10-10"
     quarterly_repayment: null
 
+# =============================================================================
+# [LEGACY] TARGETS
+# =============================================================================
 targets:
   ceo_throughput: 240000000
   plan_throughput: 140000000
   min_sales_buffer: 500000
+
+# =============================================================================
+# [NEW] STRATEGIC CONTEXT
+# =============================================================================
+strategy:
+  planning_horizon_years: 5
+  base_year: 2025
+  targets:
+    revenue_growth_annual: 0.15
+    gross_margin: 0.28
+    operating_margin: 0.12
+    net_margin: 0.08
+    roe: 0.25
+    roic: 0.20
+    dscr: 1.5
+    current_ratio: 2.0
+    lt_debt_to_ebitda: 2.0
+    debt_to_equity: 1.5
+    dividend_payout_ratio: 0.30
+    cash_conversion_cycle_days: 60
+    inventory_turns: 6.0
+
+# =============================================================================
+# [NEW] REVENUE DRIVERS
+# =============================================================================
+revenue:
+  product_lines:
+    - name: "Generic Pharmaceuticals"
+      base_volume: 250000
+      avg_price: 850
+      growth_rate: 0.12
+      cogs_per_unit: 600
+      gross_margin: 0.29
+      description: "Core business — essential medicines, antibiotics, pain management"
+    - name: "Medical Devices & Consumables"
+      base_volume: 50000
+      avg_price: 2500
+      growth_rate: 0.18
+      cogs_per_unit: 1800
+      gross_margin: 0.28
+      description: "Higher-growth segment — diagnostics, PPE, surgical consumables"
+    - name: "Specialty Pharmaceuticals"
+      base_volume: 30000
+      avg_price: 3500
+      growth_rate: 0.08
+      cogs_per_unit: 2400
+      gross_margin: 0.31
+      description: "Oncology, chronic disease — stabilising, higher margin"
+  seasonality:
+    q1: 0.22
+    q2: 0.25
+    q3: 0.24
+    q4: 0.29
+  cash_ratio: 0.85
+  credit_ratio: 0.15
+  credit_terms_days: 30
+  bad_debt_rate: 0.005
+  customer_segments:
+    - name: "Government Hospitals"
+      revenue_pct: 0.45
+      payment_terms_days: 45
+      bad_debt_rate: 0.002
+    - name: "Private Hospitals & Clinics"
+      revenue_pct: 0.35
+      payment_terms_days: 30
+      bad_debt_rate: 0.005
+    - name: "Pharmacies & Distributors"
+      revenue_pct: 0.20
+      payment_terms_days: 15
+      bad_debt_rate: 0.01
+
+# =============================================================================
+# [NEW] COST STRUCTURE
+# =============================================================================
+costs:
+  cogs_breakdown:
+    raw_materials_pct: 0.55
+    import_duties_pct: 0.15
+    freight_pct: 0.10
+    direct_labor_pct: 0.10
+    other_direct_pct: 0.10
+  operating_expenses:
+    sales_marketing:
+      fixed_per_month: 300000
+      variable_pct_of_revenue: 0.02
+      description: "Sales team, promotions, market development"
+    distribution:
+      fixed_per_month: 200000
+      variable_pct_of_revenue: 0.03
+      description: "Warehousing, last-mile delivery, cold chain"
+    admin:
+      fixed_per_month: 500000
+      variable_pct_of_revenue: 0
+      description: "Management, finance, HR, IT, office"
+    r_and_d:
+      fixed_per_month: 100000
+      variable_pct_of_revenue: 0
+      description: "Product registration, quality assurance"
+    other:
+      fixed_per_month: 50000
+      variable_pct_of_revenue: 0
+      description: "Miscellaneous"
+  headcount:
+    total_headcount: 45
+    avg_cost_per_employee_per_month: 32000
+    hiring_growth_rate: 0.05
+    salary_escalation_rate: 0.07
+  escalation_rate: 0.08
+  other_fixed_costs_per_month: 0
+
+# =============================================================================
+# [NEW] CAPITAL STRUCTURE
+# =============================================================================
+capital:
+  equity:
+    paid_in_capital: 15000000
+    retained_earnings: 25000000
+    additional_paid_in: 0
+  debt:
+    - facility: 70000000
+      type: "Murabaha_Revolving"
+      profit_rate: 0.07
+      tenor_quarters: 8
+      purpose: "Inventory financing"
+      outstanding: 0
+  target_debt_to_equity: 1.5
+  target_dscr: 1.5
+
+# =============================================================================
+# [NEW] FIXED ASSETS & CAPEX
+# =============================================================================
+fixed_assets:
+  existing_assets:
+    - cost: 35000000
+      accumulated_depreciation: 12000000
+      useful_life_years: 10
+      depreciation_method: "straight_line"
+      description: "Warehouse & office building"
+    - cost: 8000000
+      accumulated_depreciation: 3500000
+      useful_life_years: 5
+      depreciation_method: "straight_line"
+      description: "Fleet — 3 refrigerated trucks"
+    - cost: 5000000
+      accumulated_depreciation: 2000000
+      useful_life_years: 5
+      depreciation_method: "straight_line"
+      description: "IT systems, cold chain equipment"
+  capex_plan:
+    year_1: 5000000
+    year_2: 3000000
+    year_3: 2000000
+    year_4: 2000000
+    year_5: 1000000
+
+# =============================================================================
+# [NEW] WORKING CAPITAL POLICY
+# =============================================================================
+working_capital:
+  inventory:
+    raw_materials_days: 45
+    wip_days: 15
+    finished_goods_days: 60
+    safety_stock_days: 15
+    obsolescence_rate: 0.02
+  receivables:
+    dso_target: 30
+    bad_debt_rate: 0.005
+  payables:
+    dpo_target: 45
+  cash_conversion_cycle_target: 60
+
+# =============================================================================
+# [NEW] TAXATION
+# =============================================================================
+taxation:
+  corporate_income_tax_rate: 0.30
+  vat_rate: 0.15
+  withholding_tax_rate: 0.05
+  tax_loss_carryforward_years: 5
+  tax_installment_frequency_months: 3

@@ -1,10 +1,38 @@
 """Sheet 1: Inputs"""
 from __future__ import annotations
+import math
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 from datetime import date
+from typing import Optional
 from yusra_model.config.loader import Config
+
+
+def _murabaha_apr_equivalent(flat_rate: float, tenor_quarters: int) -> float:
+    """Compute declining-balance APR equivalent for a flat Murabaha rate.
+
+    Solves for the periodic rate r such that equal installments match.
+    Flat total profit = principal * rate * years.
+    Equivalent APR is found via bisection on the amortisation formula.
+    """
+    n = tenor_quarters
+    # Flat-rate total profit factor per unit principal
+    flat_factor = 1.0 + flat_rate * (n / 4)
+    quarterly_pmt = flat_factor / n
+
+    # Bisection to find quarterly rate that produces same payment
+    lo, hi = 0.0, 0.5
+    for _ in range(50):
+        mid = (lo + hi) / 2
+        f = quarterly_pmt - (mid * (1 + mid) ** n) / ((1 + mid) ** n - 1) if mid > 1e-12 else quarterly_pmt - 1.0 / n
+        if f > 0:
+            lo = mid
+        else:
+            hi = mid
+    quarterly_rate = (lo + hi) / 2
+    apr_eq = quarterly_rate * 4
+    return round(apr_eq * 100, 1)
 
 HDR_FILL = PatternFill("solid", fgColor="003366")
 HDR_FONT = Font(bold=True, color="FFFFFF", size=11, name="Calibri")
@@ -52,7 +80,8 @@ def write_row(ws, row, col_start, values, bold=False, fmt=None, fill=None):
         cell.border = THIN
 
 
-def build(ws: openpyxl.worksheet.worksheet.Worksheet, cfg: Config, portfolio) -> None:
+def build(ws: openpyxl.worksheet.worksheet.Worksheet, cfg: Config, portfolio,
+          audit: dict | None = None) -> None:
     ws.title = "Inputs"
     ws.sheet_properties.tabColor = "003366"
     for col, w in [(1, 3), (2, 42), (3, 22), (4, 22), (5, 22), (6, 22), (7, 18), (8, 22), (9, 22)]:
@@ -62,6 +91,14 @@ def build(ws: openpyxl.worksheet.worksheet.Worksheet, cfg: Config, portfolio) ->
     ws.merge_cells('B1:H1')
     ws['B1'] = f"{cfg.company} — FINANCIAL MODEL INPUT PARAMETERS"
     ws['B1'].font = TITLE_FONT
+
+    # Audit info row
+    if audit:
+        ws.cell(r + 1, 2,
+                f"Run: {audit.get('run_id', '?')} | "
+                f"{audit.get('timestamp', '?')[:19]} | "
+                f"Scenario: {audit.get('scenario', '?')} | "
+                f"Model v{audit.get('model_version', '?')}").font = Font(size=9, italic=True, color="888888")
 
     r = 3
     ws.cell(r, 2, "KEY FINANCIAL PARAMETERS").font = SECTION_FONT
@@ -152,12 +189,15 @@ def build(ws: openpyxl.worksheet.worksheet.Worksheet, cfg: Config, portfolio) ->
 
     r = r_tot + 2
     ws.cell(r, 2, "NOTES:").font = Font(bold=True, italic=True, size=10, color="666666")
+    # APR-equivalent disclosure for Murabaha flat rate
+    apr_eq = _murabaha_apr_equivalent(cfg.profit_rate, cfg.loan_tenor_quarters)
     notes = [
         "1. Reyoung LC already settled (Apr 7, 2026); stock in warehouse.",
         "2. Remaining LCs expected to settle in Oct 2026. Drawdowns modelled accordingly.",
         f"3. Overheads: ETB {cfg.overheads_per_month:,.2f}/month (approx {cfg.overheads_per_month*3:,.2f}/quarter).",
         "4. To switch scenarios: enter 'Yes' in D14 (Baseline) or D15 (Stress).",
-        f"5. All profit charges calculated at {cfg.profit_rate*100:.0f}% p.a. using flat Murabaha structure (Principal x 2yr x {cfg.profit_rate*100:.0f}%).",
+        f"5. All profit charges calculated at {cfg.profit_rate*100:.0f}% p.a. using flat Murabaha structure.",
+        f"   APR-equivalent (declining-balance): ~{apr_eq:.1f}%. This is structural, not additional cost.",
     ]
     for i, n in enumerate(notes):
         ws.cell(r + 1 + i, 2, n).font = Font(size=9, italic=True, color="888888")

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "yusra-model"
-version = "1.0.0"
+version = "1.1.0"
 description = "YUSRA PHARMA PLC — Murabaha Revolving Loan Financial Model"
 readme = "README.md"
 requires-python = ">=3.10"
